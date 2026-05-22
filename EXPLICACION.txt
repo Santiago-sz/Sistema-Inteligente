@@ -1,0 +1,261 @@
+================================================================
+SISTEMAS INTELIGENTES DE DETECCION DE MOVIMIENTO
+Documentacion completa del proyecto
+================================================================
+
+
+----------------------------------------------------------------
+0. COMO EJECUTAR EL PROYECTO
+----------------------------------------------------------------
+
+Este proyecto usa Python 3.11 en un entorno virtual (porque Python 3.14
+no es compatible con TensorFlow todavia).
+
+PASO 1 - Activar el entorno virtual (hacer esto SIEMPRE antes de ejecutar):
+  Windows PowerShell:
+    .venv\Scripts\Activate.ps1
+  Windows CMD:
+    .venv\Scripts\activate.bat
+
+PASO 2 - Recolectar datos:
+  python 1_collect_data.py
+
+PASO 3 - Entrenar el modelo:
+  python 2_train.py
+
+PASO 4 - Detectar movimiento en tiempo real:
+  python 3_detect.py
+
+NOTA: Siempre tener el entorno virtual activado antes de correr cualquier script.
+      Sabes que esta activo porque el prompt de la terminal muestra (.venv)
+
+
+----------------------------------------------------------------
+1. QUE ES UNA RED NEURONAL
+----------------------------------------------------------------
+
+Una red neuronal artificial es un sistema inspirado en el cerebro humano.
+Esta compuesta por neuronas artificiales organizadas en capas que aprenden
+a reconocer patrones a partir de ejemplos.
+
+Una neurona artificial recibe numeros como entrada, los multiplica por
+unos "pesos" (weights), los suma, y decide si "se activa" o no.
+Ese proceso de activacion se controla con una funcion matematica llamada
+funcion de activacion (en nuestro caso, ReLU y Sigmoid).
+
+La red NO ve imagenes. Ve numeros: los valores de cada pixel (0 a 255).
+Aprende a encontrar patrones en esos numeros.
+
+
+----------------------------------------------------------------
+2. ARQUITECTURA DE LA RED (capas)
+----------------------------------------------------------------
+
+Una red neuronal tiene 3 tipos de capas:
+
+CAPA DE ENTRADA
+  Recibe los datos crudos.
+  En este proyecto: la diferencia entre dos frames consecutivos
+  de la webcam, redimensionada a 64x64 pixeles en escala de grises.
+  Dimension: (64, 64, 1)
+
+CAPAS OCULTAS
+  Son las capas intermedias donde ocurre el aprendizaje real.
+  Cada capa detecta patrones cada vez mas complejos:
+    - Capa Conv2D(32): detecta bordes y cambios de intensidad
+    - Capa Conv2D(64): detecta texturas y formas simples
+    - Capa Conv2D(128): detecta patrones complejos de movimiento
+    - MaxPooling2D: reduce el tamano de la imagen manteniendo lo importante
+    - Flatten: convierte la matriz 2D en un vector 1D
+    - Dense(128): capa completamente conectada, combina todas las caracteristicas
+    - Dropout(0.5): desactiva el 50% de neuronas aleatoriamente durante el
+                    entrenamiento para evitar overfitting
+
+CAPA DE SALIDA
+  Da la respuesta final.
+  Dense(1, sigmoid): un solo numero entre 0 y 1
+    - Cercano a 0 = sin movimiento
+    - Cercano a 1 = hay movimiento
+  El umbral de decision es 0.5 (configurable en 3_detect.py)
+
+
+----------------------------------------------------------------
+3. PARAMETROS DEL MODELO
+----------------------------------------------------------------
+
+NUMERO DE CAPAS
+  3 capas convolucionales + 1 capa densa = 4 capas ocultas principales
+  Mas capas = mas capacidad de aprender patrones complejos
+  Pero tambien mas lento y mas propenso a overfitting
+
+NEURONAS POR CAPA
+  Conv2D(32), Conv2D(64), Conv2D(128), Dense(128)
+  Los numeros 32, 64, 128 son los "filtros" (equivalente a neuronas)
+  en capas convolucionales. Se duplican progresivamente para capturar
+  caracteristicas de mayor complejidad.
+
+EPOCAS (EPOCHS = 20)
+  Una epoca = la red vio TODOS los datos de entrenamiento una vez.
+  Con 20 epocas, la red recorre el dataset completo 20 veces.
+  Pocas epocas: aprende poco (underfitting)
+  Muchas epocas: memoriza en vez de aprender (overfitting)
+
+BATCH SIZE (BATCH_SIZE = 32)
+  En lugar de actualizar los pesos imagen por imagen, agrupa 32 imagenes
+  y actualiza los pesos una vez por grupo. Mas eficiente y estable.
+
+LEARNING RATE
+  Controlado automaticamente por el optimizador Adam.
+  Determina que tan grandes son los ajustes en cada paso de aprendizaje.
+  Adam es adaptativo: ajusta el learning rate automaticamente.
+
+UMBRAL DE DECISION (THRESHOLD = 0.5)
+  Si la salida de la red supera 0.5, se clasifica como "movimiento".
+  Se puede ajustar segun el nivel de sensibilidad deseado.
+
+
+----------------------------------------------------------------
+4. COMO APRENDE: EL ENTRENAMIENTO
+----------------------------------------------------------------
+
+El proceso de entrenamiento tiene 3 pasos que se repiten en cada epoca:
+
+PASO 1 - FORWARD PASS (propagacion hacia adelante)
+  Los datos entran por la capa de entrada, viajan por todas las capas
+  ocultas y llegan a la capa de salida con una prediccion.
+  Ejemplo: la red predice "movimiento" cuando en realidad no hay.
+
+PASO 2 - CALCULO DEL ERROR (Loss)
+  Se compara la prediccion con la respuesta correcta usando una funcion
+  de perdida. En este proyecto: Binary Crossentropy (para clasificacion binaria).
+  Cuanto mayor el loss, peor esta aprendiendo la red.
+
+PASO 3 - BACKWARD PASS (backpropagation)
+  La red recorre todas las capas hacia atras y ajusta los pesos de cada
+  neurona para reducir el error. Lo hace el optimizador Adam.
+  Esto se repite hasta que el loss baja a un nivel aceptable.
+
+Analogia: es como practicar un tiro libre al aro.
+  Tiras (forward pass), ves que tan lejos estuviste (loss),
+  y ajustas tu tecnica (backward pass). Con cada entrenamiento mejoras.
+
+METRICAS QUE VAS A VER DURANTE EL ENTRENAMIENTO:
+  loss: error en datos de entrenamiento (debe bajar)
+  accuracy: precision en datos de entrenamiento (debe subir)
+  val_loss: error en datos de validacion (debe bajar y ser cercano al loss)
+  val_accuracy: precision en datos de validacion (idealmente > 90%)
+
+Si val_loss sube mientras loss baja -> OVERFITTING (el modelo memorizo en vez de aprender)
+
+
+----------------------------------------------------------------
+5. COMO FUNCIONA LA DETECCION DE MOVIMIENTO
+----------------------------------------------------------------
+
+En vez de alimentar frames completos a la red, usamos la DIFERENCIA
+entre dos frames consecutivos (frame differencing).
+
+Por que?
+  Si dos frames son iguales (sin movimiento), la diferencia es 0 (negro).
+  Si hay movimiento, la diferencia muestra zonas blancas donde cambiaron pixeles.
+  Esto hace que la red aprenda directamente sobre el cambio, no sobre el fondo.
+
+Flujo:
+  Frame actual - Frame anterior = Imagen de diferencia -> Red Neuronal -> Prediccion
+
+
+----------------------------------------------------------------
+6. ESTRUCTURA DEL PROYECTO
+----------------------------------------------------------------
+
+motion_detector/
+  |
+  |-- 1_collect_data.py
+  |     Abre la webcam y captura imagenes de diferencia entre frames.
+  |     Presiona M para guardar frames con movimiento.
+  |     Presiona N para guardar frames sin movimiento.
+  |     Guarda en data/movement/ y data/no_movement/
+  |     Necesitas minimo 50 imagenes de cada clase.
+  |
+  |-- 2_train.py
+  |     Carga todas las imagenes de la carpeta data/.
+  |     Divide los datos en 80% entrenamiento y 20% validacion.
+  |     Construye y entrena la CNN (arquitectura descripta arriba).
+  |     Guarda el modelo entrenado como modelo_movimiento.keras
+  |     Genera el grafico entrenamiento.png con las curvas de loss y accuracy.
+  |
+  |-- 3_detect.py
+  |     Carga el modelo entrenado.
+  |     Abre la webcam en tiempo real.
+  |     Calcula la diferencia entre frames consecutivos.
+  |     Pasa la diferencia por la red y muestra el resultado en pantalla.
+  |     Verde = sin movimiento | Rojo = movimiento detectado
+  |
+  |-- data/
+  |     movement/     (imagenes con movimiento capturadas en paso 1)
+  |     no_movement/  (imagenes sin movimiento capturadas en paso 1)
+  |
+  |-- modelo_movimiento.keras  (generado al correr 2_train.py)
+  |-- entrenamiento.png        (generado al correr 2_train.py)
+  |-- EXPLICACION.txt          (este archivo)
+
+
+----------------------------------------------------------------
+7. LIBRERIAS UTILIZADAS
+----------------------------------------------------------------
+
+opencv-python (cv2)
+  Captura de video desde la webcam, procesamiento de imagenes,
+  calculo de diferencia entre frames y visualizacion en tiempo real.
+
+tensorflow / keras
+  Framework principal para construir, entrenar y ejecutar la red neuronal.
+
+numpy
+  Manipulacion de arrays numericos (las imagenes son arrays de numeros).
+
+matplotlib
+  Generacion de graficos de accuracy y loss durante el entrenamiento.
+
+
+----------------------------------------------------------------
+8. GLOSARIO RAPIDO
+----------------------------------------------------------------
+
+CNN (Convolutional Neural Network): tipo de red neuronal disenada
+  para procesar imagenes. Usa filtros que recorren la imagen buscando patrones.
+
+Conv2D: capa convolucional 2D. Aplica filtros sobre la imagen.
+
+MaxPooling: reduce el tamano de la imagen tomando el valor maximo
+  de cada region. Reduce parametros y evita overfitting.
+
+Flatten: convierte una matriz multidimensional en un vector 1D.
+
+Dense: capa donde cada neurona se conecta con todas las de la capa anterior.
+
+Dropout: tecnica de regularizacion que apaga neuronas aleatoriamente
+  durante el entrenamiento para evitar que la red memorice.
+
+Sigmoid: funcion de activacion que comprime cualquier numero al rango [0, 1].
+  Ideal para clasificacion binaria (si/no, movimiento/sin movimiento).
+
+ReLU: funcion de activacion que devuelve 0 para valores negativos
+  y el mismo valor para positivos. Simple y efectiva en capas ocultas.
+
+Overfitting: cuando la red aprende de memoria los datos de entrenamiento
+  pero no generaliza bien con datos nuevos.
+
+Underfitting: cuando la red no aprendio suficiente y tiene baja precision
+  tanto en entrenamiento como en validacion.
+
+Adam: optimizador adaptativo que ajusta automaticamente el learning rate.
+  Es el mas usado en la practica por su buen rendimiento general.
+
+Binary Crossentropy: funcion de perdida para clasificacion de 2 clases.
+  Mide que tan diferente es la prediccion de la respuesta correcta.
+
+================================================================
+Proyecto: Sistema 1 - Deteccion de movimiento con CNN propia
+Tecnologias: Python, TensorFlow/Keras, OpenCV
+================================================================
